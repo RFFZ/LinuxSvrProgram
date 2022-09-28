@@ -1,8 +1,9 @@
-#ifndef TIME_WHEEL_TIMER_
-#define TIME_WHEEL_TIMER_
+#ifndef MIN_HEAP_
+#define MIN_HEAP_
 
-#include <time.h>
+#include <iostream>
 #include <netinet/in.h>
+#include <time.h>
 #include <stdio.h>
 #include <libgen.h>
 #include <sys/socket.h>
@@ -17,178 +18,230 @@
 #include <time.h>
 #include <unistd.h>
 
+using std::exception;
 
 #define BUFFER_SIZE 64
-#define MAX_EVENT_NUMBER 1024
-#define TIMESLOT 5
-#define FD_LIMIT 65535
 
-class tw_timer;
-
+class heap_timer;
 struct client_data
 {
     sockaddr_in address;
     int sockfd;
-    char buf[BUFFER_SIZE];
-    tw_timer *timer;
+    char buff[BUFFER_SIZE];
+    heap_timer *timer;
 };
 
-class tw_timer
+class heap_timer
 {
 public:
-    tw_timer(int rot, int ts) : next(NULL), prev(NULL), rotation(rot), time_slot(ts) {}
-    ~tw_timer() {}
+    heap_timer(int delay)
+    {
+        expire = time(NULL) + delay;
+    }
 
 public:
-    int rotation;
-    int time_slot;
+    time_t expire;
     void (*cb_func)(client_data *);
     client_data *user_data;
-    tw_timer *next;
-    tw_timer *prev;
 };
 
-class time_wheel
+class timer_heap
 {
 public:
-    time_wheel() : cur_slot(0)
+    timer_heap(int cap) throw(std::exception) : capacity(cap), cur_size(0)
     {
-        for (int i = 0; i < N; ++i)
+        array = new heap_timer*[capacity];
+        if(!array)
         {
-            slots[i] = NULL;
+            throw std::exception();
+        }
+        for(int i = 0; i<capacity;++i)
+        {
+            array[i] = NULL;
         }
     }
 
-    ~time_wheel()
+    timer_heap(heap_timer** init_array,int size,int capacity)throw(std::exception) : capacity(capacity), cur_size(size)
     {
-        for (int i = 0; i < N; ++i)
+        if(capacity < size)
         {
-            tw_timer *tmp = slots[i];
-            while (tmp)
+            throw std::exception();
+        }
+        array = new heap_timer*[capacity];
+        if(!array)
+        {
+            throw std::exception();
+        }
+        for(int i = 0; i< capacity;++i)
+        {
+            array[i] = NULL;
+        }
+        if(size == 0)
+        {
+            for(int i = 0; i< size;++i)
             {
-                slots[i] = tmp->next;
-                delete tmp;
-                tmp = slots[i];
+                array[i] = init_array[i];
+            }
+            for(int i = (cur_size)/2;i >= 0;++i)
+            {
+                percolate_down(i);
             }
         }
     }
 
-    tw_timer *add_timer(int timeout)
+    ~timer_heap()
     {
-        if (timeout < 0)
+        for(int i = 0; i<cur_size;++i)
+        {
+            delete array[i];
+        }
+        delete []array;
+    }
+
+    public:
+    void add_timer(heap_timer* timer) throw(std::exception)
+    {
+        if(!timer)
+        {
+            printf("add timer failed for it's null\n");
+            return;
+        }
+        if(cur_size >= capacity)
+        {
+            resize();
+        }
+
+        int hole = cur_size++;
+        int parent = 0;
+        for(; hole >0; hole = parent)
+        {
+            parent = (hole -1)/2;
+            if(array[parent]->expire <= timer->expire)
+            {
+                break;
+            }
+            array[hole] = array[parent];
+        }
+        array[hole] = timer;
+    }
+
+    void del_timer(heap_timer* timer)
+    {
+        if(!timer)
+        {
+            printf("del timer failed for it's null\n");
+            return;
+        }
+         timer->cb_func = NULL;
+    }
+
+    heap_timer* top() const
+    {
+        if(empty())
         {
             return NULL;
         }
-
-        int ticks = 0;
-        if (timeout < SI)
-        {
-            ticks = 1;
-        }
-        else
-        {
-            ticks = timeout / SI;
-        }
-
-        int rotation = timeout / N;
-        int ts = (cur_slot + (ticks % N)) % N;
-        tw_timer *timer = new tw_timer(rotation, ts);
-        if (!slots[ts])
-        {
-            printf("add timer,rotation is %d,ts is %d,cur_slot is %d\n",
-                   rotation, ts, cur_slot);
-            slots[ts] = timer;
-        }
-        else
-        {
-            timer->next = slots[ts];
-            slots[ts]->prev = timer;
-            slots[ts] = timer;
-        }
-        return timer;
+        return array[0];
     }
 
-    void del_timer(tw_timer *timer)
+    void pop_timer()
     {
-        if (!timer)
+        if(empty())
         {
+            printf("pop failed for it's empty\n");
             return;
         }
-
-        int ts = timer->time_slot;
-        if (timer == slots[ts])
+        if(array[0])
         {
-            slots[ts] = slots[ts]->next;
-            if (slots[ts])
-            {
-                slots[ts]->prev = NULL;
-            }
-            delete timer;
-        }
-        else
-        {
-            timer->prev->next = timer->next;
-            if (timer->next)
-            {
-                timer->next->prev = timer->prev;
-            }
-            delete timer;
+            delete array[0];
+            array[0] = array[--cur_size];
+            percolate_down(0);
         }
     }
 
     void tick()
     {
-        tw_timer *tmp = slots[cur_slot];
-        printf("current slot is %d\n", cur_slot);
-        while (tmp)
+        heap_timer* tmp = array[0];
+        time_t cur = time(NULL);
+        while(!empty())
         {
-            printf("tick the timer once\n");
-            if (tmp->rotation)
+            if(!tmp)
             {
-                tmp->rotation--;
-                tmp = tmp->next;
+                break;
+            }
+            if(tmp->expire > cur)
+            {
+                break;
+            }
+            if(array[0]->cb_func)
+            {
+                array[0]->cb_func(array[0]->user_data);
+            }
+            pop_timer();
+            tmp = array[0];
+        }
+    }
+
+    bool empty()const{return cur_size == 0;}
+
+    private:
+    void percolate_down(int hole)
+    {
+        heap_timer* temp = array[hole];
+        int child = 0;
+        for(;((hole*2+1) <= (cur_size -1)) ;hole = child)
+        {
+            child = hole*2+1;
+            if((child < (cur_size-1)) && (array[child+1]->expire < array[child]->expire))
+            {
+                ++child;
+            }
+            if(array[child]->expire < temp->expire)
+            {
+                array[hole] = array[child];
             }
             else
             {
-                tmp->cb_func(tmp->user_data);
-                if (tmp == slots[cur_slot])
-                {
-                    printf("delete header in cur_slot\n");
-                    slots[cur_slot] = slots[cur_slot]->next;
-                    delete tmp;
-                    if (slots[cur_slot])
-                    {
-                        slots[cur_slot]->prev = NULL;
-                    }
-                    tmp = slots[cur_slot];
-                }
-                else
-                {
-                    tmp->prev->next = tmp->next;
-                    if (tmp->next)
-                    {
-                        tmp->next->prev = tmp->prev;
-                    }
-                    tw_timer *tmp2 = tmp->next;
-                    delete tmp;
-                    tmp = tmp2;
-                }
+                break;
             }
         }
-        cur_slot = ++cur_slot % N;
+        array[hole] = temp;
+    }
+
+
+    void resize() throw(std::exception)
+    {
+        heap_timer** temp = new heap_timer*[2*capacity];
+        for(int i = 0; i<2*capacity;++i)
+        {
+            temp[i] = NULL;
+        }
+        if(!temp)
+        {
+            throw std::exception();
+        }
+        capacity = 2*capacity;
+        for(int i = 0;i<cur_size;i++)
+        {
+            temp[i] = array[i];
+        }
+        delete []array;
+        array = temp;
     }
 
 private:
-    static const int N = 60;
-    static const int SI = 1;
-    tw_timer *slots[N];
-    int cur_slot;
+    heap_timer **array;
+    int capacity;
+    int cur_size;
 };
-
-static time_wheel timeWheel;
+static timer_heap timeHeap;
 static int pipefd[2];
 static int epollfd;
 
+#define BUFFER_SIZE 64
+#define MAX_EVENT_NUMBER 1024
+#define TIMESLOT 5
+#define FD_LIMIT 65535
 
 int setnoblocking(int fd)
 {
@@ -235,7 +288,7 @@ void cb_func(client_data *user_data)
 
 void timer_handler()
 {
-    timeWheel.tick();
+    timeHeap.tick();
     alarm(TIMESLOT);
 }
 
@@ -307,7 +360,7 @@ int main(int argc, char *argv[])
                 int connfd = accept(listenfd, (struct sockaddr *)&client_address, &client_addLength);
                 addfd(epollfd, connfd);
 
-                tw_timer *pTimer = timeWheel.add_timer(3*TIMESLOT);
+                heap_timer *pTimer = timeWheel.add_timer(3*TIMESLOT);
                 pTimer->cb_func = cb_func;
                 pTimer->user_data = &users[sockfd];
                 users[sockfd].timer = pTimer;
@@ -397,5 +450,6 @@ int main(int argc, char *argv[])
     delete []users;
     return 0;
 }
+
 
 #endif
