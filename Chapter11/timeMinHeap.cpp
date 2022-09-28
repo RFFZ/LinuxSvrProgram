@@ -37,6 +37,7 @@ public:
     heap_timer(int delay)
     {
         expire = time(NULL) + delay;
+        printf("new heap_timer delay %d expire %ld\n",delay,expire);
     }
 
 public:
@@ -48,7 +49,7 @@ public:
 class timer_heap
 {
 public:
-    timer_heap(int cap) throw(std::exception) : capacity(cap), cur_size(0)
+    timer_heap(int cap) : capacity(cap), cur_size(0)
     {
         array = new heap_timer*[capacity];
         if(!array)
@@ -61,7 +62,7 @@ public:
         }
     }
 
-    timer_heap(heap_timer** init_array,int size,int capacity)throw(std::exception) : capacity(capacity), cur_size(size)
+    timer_heap(heap_timer** init_array,int size,int capacity) : capacity(capacity), cur_size(size)
     {
         if(capacity < size)
         {
@@ -99,7 +100,7 @@ public:
     }
 
     public:
-    void add_timer(heap_timer* timer) throw(std::exception)
+    void add_timer(heap_timer* timer)
     {
         if(!timer)
         {
@@ -123,6 +124,14 @@ public:
             array[hole] = array[parent];
         }
         array[hole] = timer;
+
+        if(array[0])
+        {
+            time_t cur = time(NULL);
+            int alarmNum = array[0]->expire - cur;
+            alarm(alarmNum);
+            printf("add timer alarm %d\n",alarmNum);
+        }
     }
 
     void del_timer(heap_timer* timer)
@@ -132,7 +141,7 @@ public:
             printf("del timer failed for it's null\n");
             return;
         }
-         timer->cb_func = NULL;
+        timer->cb_func = NULL;
     }
 
     heap_timer* top() const
@@ -169,8 +178,11 @@ public:
             {
                 break;
             }
-            if(tmp->expire > cur)
+            if (tmp->expire > cur)
             {
+                int alarmNum = tmp->expire - cur;
+                printf("add timer alarm %d\n", alarmNum);
+                alarm(alarmNum);
                 break;
             }
             if(array[0]->cb_func)
@@ -209,7 +221,7 @@ public:
     }
 
 
-    void resize() throw(std::exception)
+    void resize() 
     {
         heap_timer** temp = new heap_timer*[2*capacity];
         for(int i = 0; i<2*capacity;++i)
@@ -234,7 +246,7 @@ private:
     int capacity;
     int cur_size;
 };
-static timer_heap timeHeap;
+static timer_heap* timeHeap= new timer_heap(100);
 static int pipefd[2];
 static int epollfd;
 
@@ -288,8 +300,8 @@ void cb_func(client_data *user_data)
 
 void timer_handler()
 {
-    timeHeap.tick();
-    alarm(TIMESLOT);
+    timeHeap->tick();
+    
 }
 
 
@@ -314,6 +326,9 @@ int main(int argc, char *argv[])
 
     int listenfd = socket(PF_INET, SOCK_STREAM, 0);
     assert(listenfd >= 0);
+
+    int reuse = 1;
+    setsockopt(listenfd,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse));
 
     ret = bind(listenfd, (struct sockaddr *)&address, sizeof(address));
     assert(ret != -1);
@@ -360,10 +375,18 @@ int main(int argc, char *argv[])
                 int connfd = accept(listenfd, (struct sockaddr *)&client_address, &client_addLength);
                 addfd(epollfd, connfd);
 
-                heap_timer *pTimer = timeWheel.add_timer(3*TIMESLOT);
+                heap_timer *pTimer = new heap_timer(3*TIMESLOT);
                 pTimer->cb_func = cb_func;
                 pTimer->user_data = &users[sockfd];
-                users[sockfd].timer = pTimer;
+
+                users[connfd].sockfd = connfd;
+                users[connfd].timer = pTimer;
+                users[connfd].address = client_address;
+                
+                timeHeap->add_timer(pTimer);
+
+                printf("receive sockfd %d connect\n",connfd);
+
             }
             else if(sockfd == pipefd[0] && (events[i].events & EPOLLIN))
             {
@@ -396,11 +419,13 @@ int main(int argc, char *argv[])
             }
             else if(events[i].events & EPOLLIN)
             {
-                memset(users[sockfd].buf,'\0',BUFFER_SIZE);
-                ret = recv(sockfd,users[sockfd].buf,BUFFER_SIZE-1,0);
-                printf("get %d bytes of client data %s from %d\n",ret,users[sockfd].buf,sockfd);
+                memset(users[sockfd].buff,'\0',BUFFER_SIZE);
+                ret = recv(sockfd,users[sockfd].buff,BUFFER_SIZE-1,0);
+                heap_timer *timer = users[sockfd].timer;
 
-                 tw_timer *timer = users[sockfd].timer;
+                printf("get %d bytes of client data %s from %d timer %p\n",ret,users[sockfd].buff,sockfd,timer);
+
+                
 
                 if(ret < 0)
                 {
@@ -409,7 +434,7 @@ int main(int argc, char *argv[])
                         cb_func(&users[sockfd]);
                         if(timer)
                         {
-                            timeWheel.del_timer(timer);
+                            timeHeap->del_timer(timer);
                         }
 
                     }
@@ -419,19 +444,22 @@ int main(int argc, char *argv[])
                     cb_func(&users[sockfd]);
                     if (timer)
                     {
-                        timeWheel.del_timer(timer);
+                         timeHeap->del_timer(timer);
                     }
                 }
                 else
                 {
+                    printf("enter recv else timer %p\n",timer);
                     if (timer)
                     {
-                        tw_timer *pTimer = timeWheel.add_timer(3 * TIMESLOT);
+                        heap_timer *pTimer =new heap_timer(3 * TIMESLOT);
+                        
                         pTimer->cb_func = cb_func;
                         pTimer->user_data = &users[sockfd];
                         users[sockfd].timer = pTimer;
 
-                        timeWheel.del_timer(timer);
+                        timeHeap->del_timer(timer);
+                        timeHeap->add_timer(pTimer);
                     }
                 }
             }

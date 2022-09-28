@@ -311,6 +311,8 @@ int main(int argc, char *argv[])
                 pTimer->cb_func = cb_func;
                 pTimer->user_data = &users[sockfd];
                 users[sockfd].timer = pTimer;
+                users[sockfd].sockfd = sockfd;
+                users[sockfd].address = client_address;
             }
             else if(sockfd == pipefd[0] && (events[i].events & EPOLLIN))
             {
