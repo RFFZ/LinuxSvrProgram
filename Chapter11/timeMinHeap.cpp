@@ -313,6 +313,8 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    printf("start timeMinHeap\n");
+
     const char *ip = argv[1];
     int port = atoi(argv[2]);
 
