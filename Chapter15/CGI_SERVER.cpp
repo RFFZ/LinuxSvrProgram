@@ -29,6 +29,10 @@ public:
         m_address = client_addr;
         memset(m_buff, '\0', 1024);
         m_read_idx = 0;
+        char szAddress[64] = {0};
+        inet_ntop(AF_INET, (void *)&m_address.sin_addr, szAddress, 64);
+        int port = ntohs(client_addr.sin_port);
+        printf("receive client %s:%u connected\n",szAddress,port);
     }
 
     void process()
@@ -123,6 +127,9 @@ int main(int argc,char* argv[])
 
     int listenfd = socket(PF_INET,SOCK_STREAM,0);
     assert(listenfd != -1);
+
+    unsigned int opt = 1; // sockfd为需要端口复用的套接字
+    setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (const void *)&opt, sizeof(opt));
 
     int ret = 0;
     struct sockaddr_in address;
