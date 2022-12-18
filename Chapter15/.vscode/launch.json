@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/${fileBasenameNoExtension}", //只改这里
-            "args": ["192.168.0.105","6300"],
+            "args": ["192.168.1.5","6300"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],

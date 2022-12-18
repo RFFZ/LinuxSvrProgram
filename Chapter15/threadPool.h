@@ -5,7 +5,7 @@
 #include <cstdio>
 #include <exception>
 #include <pthread.h>
-
+#include <thread>
 #include "locker.h"
 
 
@@ -40,7 +40,7 @@ m_max_requests(max_requests),m_stop(false),m_threads(nullptr)
         throw std::exception();
     }
 
-    m_threads = new thread_t[m_thread_number];
+    m_threads = new pthread_t[m_thread_number];
     if(!m_threads)
     {
         throw std::exception();
@@ -55,7 +55,7 @@ m_max_requests(max_requests),m_stop(false),m_threads(nullptr)
             throw std::exception();
         }
 
-        if(pthread_detach(m_threads[i]))
+        if(pthread_detach(m_threads[i]))   //thread finish self release resource
         {
             
             delete [] m_threads;
@@ -81,6 +81,7 @@ bool threadPool<T>::append(T* request)
         return false;
     }
     m_workqueue.push_back(request);
+    printf("add work in worker list\n");
     m_queuelocker.unlock();
     m_queuestat.post();
     return true;
@@ -113,6 +114,8 @@ void threadPool<T>::run()
         {
             continue;
         }
+
+        printf("worker thread %u get job request %p prepare to process\n",std::this_thread::get_id(),request);
         request->process();
     }
 }

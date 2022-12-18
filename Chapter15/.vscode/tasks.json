@@ -7,7 +7,7 @@
             "args": [
                 "-fdiagnostics-color=always",
                 "-g",
-                "${file}",
+                "http_conn.h","http_conn.cpp","http_server.cpp",
                 "-o",
                 "${fileDirname}/${fileBasenameNoExtension}"
             ],

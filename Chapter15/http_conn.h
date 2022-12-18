@@ -18,7 +18,8 @@
 #include <sys/mman.h>
 #include <stdarg.h>
 #include <errno.h>
-#include <locker.h>
+#include <sys/uio.h>
+#include "locker.h"
 
 class http_conn
 {
@@ -85,14 +86,14 @@ private:
     HTTP_CODE parse_content(char *text);
 
     HTTP_CODE do_request();
-    char *get_liine() { return m_read_buf + m_start_line; }
+    char *get_line() { return m_read_buf + m_start_line; }
     LINE_STATUS parse_line();
 
     void unmap();
     bool add_response(const char *format, ...);
     bool add_content(const char *content);
     bool add_status_line(int status, const char *title);
-    bool add_headers(int content_length);
+    void add_headers(int content_length);
     bool add_content_length(int content_length);
     bool add_linger();
     bool add_blank_line();
